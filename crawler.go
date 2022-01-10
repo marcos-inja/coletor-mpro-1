@@ -14,7 +14,6 @@ import (
 
 
 type crawler struct {
-	downloadTimeout   time.Duration
 	collectionTimeout time.Duration
 	timeBetweenSteps  time.Duration
 	year              string
@@ -23,15 +22,12 @@ type crawler struct {
 }
 
 func (c crawler) crawl() ([]string, error) {
-	// Pegar variáveis de ambiente
-
 	// Chromedp setup.
 	log.SetOutput(os.Stderr) // Enviando logs para o stderr para não afetar a execução do coletor.
-
 	alloc, allocCancel := chromedp.NewExecAllocator(
 		context.Background(),
 		append(chromedp.DefaultExecAllocatorOptions[:],
-			chromedp.Flag("headless", true), // mude para false para executar com navegador visível.
+			chromedp.Flag("headless", false), // mude para false para executar com navegador visível.
 			chromedp.NoSandbox,
 			chromedp.DisableGPU,
 		)...,
@@ -125,8 +121,18 @@ func (c crawler) exportaPlanilha(ctx context.Context, fName string) error {
 		// Clica no botão de download 
 		chromedp.Click(`/html/body/table/tbody/tr[4]/td[1]/div[1]/div[2]/div/div[2]/div[2]/div/div[1]/input`, chromedp.BySearch, chromedp.NodeVisible),
 	)
-	time.Sleep(c.downloadTimeout)
 
+	// Espera o download terminar
+	done := make(chan string, 1)
+	chromedp.ListenTarget(ctx, func(v interface{}) {
+		if ev, ok := v.(*browser.EventDownloadProgress); ok {
+			if ev.State == browser.DownloadProgressStateCompleted {
+				done <- ev.GUID
+			}
+		}
+	})
+	<-done
+	
 	if err := nomeiaDownload(c.output, fName); err != nil {
 		return fmt.Errorf("erro renomeando arquivo (%s): %v", fName, err)
 	}
